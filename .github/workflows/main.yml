@@ -1,4 +1,4 @@
-name: Win10-AR-4GB-GPU
+name: Win10-AR-4GB-GPU-STABLE
 on:
   workflow_dispatch:
 
@@ -15,25 +15,23 @@ jobs:
           Set-MpPreference -DisableRealtimeMonitoring $true
           Restart-Service -Name TermService -Force
 
-      - name: 2. Inject 4GB GPU & Mesa 3D
+      - name: 2. Setup 4GB Virtual GPU & Download Mesa
         run: |
+          # 1. Inject 4GB VRAM Registry
           $regPaths = @("HKLM:\SOFTWARE\Microsoft\DirectX", "HKLM:\SOFTWARE\Intel\GMM")
           foreach ($p in $regPaths) {
             if (!(Test-Path $p)) { New-Item $p -Force }
             New-ItemProperty -Path $p -Name "DedicatedVideoMemory" -Value 4294967296 -PropertyType QWORD -Force
           }
 
-          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/23.1.3/mesa3d-23.1.3-release-msvc.7z"
+          # 2. Download Mesa 3D
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/24.0.1/mesa3d-24.0.1-release-msvc.7z"
           $zip = "$env:TEMP\mesa.7z"
           Invoke-WebRequest -Uri $url -OutFile $zip
           
-          & 7z x $zip -o"$env:TEMP\mesa" -y
-          
-          $mesaDll = "$env:TEMP\mesa\x64\opengl32.dll"
-          if (Test-Path $mesaDll) {
-            Copy-Item $mesaDll -Destination "C:\Windows\System32\" -Force
-            Copy-Item "$env:TEMP\mesa\x64\libgallium_wgl.dll" -Destination "C:\Windows\System32\" -Force
-          }
+          # 3. Extract to a safe folder (NOT System32)
+          & 7z x $zip -o"C:\MesaGPU" -y
+          Write-Host "GPU Drivers ready in C:\MesaGPU"
 
       - name: 3. Setup User & Connect Tailscale
         shell: powershell
@@ -49,7 +47,6 @@ jobs:
           Start-Process msiexec.exe -ArgumentList "/i", "ts.msi", "/quiet", "/norestart" -Wait
           
           $ts = "C:\Program Files\Tailscale\tailscale.exe"
-          # Line 43 Fix: Separate commands clearly
           & $ts up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=AR --accept-routes
           
           $ip = & $ts ip -4
@@ -60,8 +57,9 @@ jobs:
         run: |
           Write-Host "=============================="
           Write-Host "Device Name: AR"
-          Write-Host "IP: $env:IP"
-          Write-Host "User: RDP"
-          Write-Host "Pass: $env:PASS"
+          Write-Host "IP: $env:IP | User: RDP | Pass: $env:PASS"
+          Write-Host "------------------------------"
+          Write-Host "TO FIX 2 FPS LAG:"
+          Write-Host "Copy files from C:\MesaGPU\x64\ to your BeamNG\Bin64 folder."
           Write-Host "=============================="
           while($true) { Start-Sleep 300 }
